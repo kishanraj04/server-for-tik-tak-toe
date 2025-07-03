@@ -4,11 +4,13 @@ import {Server} from 'socket.io'
 import { user } from './src/routes/user.route.js'
 import { errorHandler } from './src/middleware/GlobalErrorHandler.js'
 import './config/connectToDb.js'
+import cors from 'cors'
 const app = express()
 const server = createServer(app)
 
 const io =new Server(server,{})
 
+app.use(cors())
 app.use(errorHandler)
 
 // user route
