@@ -1,23 +1,25 @@
-import cloudinary from '../../config/cloudinary.js';
-import streamifier from 'streamifier';
-import { User } from '../model/user.model.js';
+import cloudinary from "../../config/cloudinary.js";
+import streamifier from "streamifier";
+import { User } from "../model/user.model.js";
+import bcrypt from 'bcrypt'
+import jwt from 'jsonwebtoken'
 
 export const SignUp = async (req, res, next) => {
   try {
     const { name, password } = req.body;
 
-    const isExistUser = await User.findOne({name})
-    
-    if(isExistUser){
-      return res.status(200).json({message:"user exist",success:false})
+    const isExistUser = await User.findOne({ name });
+
+    if (isExistUser) {
+      return res.status(200).json({ message: "user exist", success: false });
     }
 
-    let avatarUrl = '';
+    let avatarUrl = "";
     if (req.file) {
       const streamUpload = (fileBuffer) => {
         return new Promise((resolve, reject) => {
           const stream = cloudinary.uploader.upload_stream(
-            { folder: 'avatars' },
+            { folder: "avatars" },
             (error, result) => {
               if (result) {
                 resolve(result);
@@ -41,10 +43,62 @@ export const SignUp = async (req, res, next) => {
       avatar: avatarUrl,
     };
 
-    await User.create(user)
-    
+    await User.create(user);
+
     return res.status(200).json({ success: true, user });
   } catch (err) {
+    console.log("err from user sing up  cont...", err?.message);
     next(err);
   }
 };
+
+export const login = async (req, res, next) => {
+  try {
+    const { name, password } = req?.body;
+
+    const isExistUser = await User.findOne({ name: name });
+    if (!isExistUser) {
+      res.status(401); 
+      return next(new Error("Invalid credentials"));
+    }
+    
+    const isCorrectPass = await bcrypt.compare(password,isExistUser?.password)
+    console.log(isCorrectPass);
+    if(!isCorrectPass){
+       res.status(401); 
+      return next(new Error("Invalid credentials"));
+    }
+    
+    const token = jwt.sign({user:isExistUser},process.env?.SECRET,{expiresIn:"1d"})
+
+    res.cookie("token",token,{
+      httpOnly:true,
+      secure:true,
+      sameSite:"none",
+      maxAge:1 * 24 * 60 * 60 * 1000
+    })
+
+    res.status(200).json({
+      success:true,
+      message:"login success",
+      user:isExistUser
+    })
+
+  } catch (error) {
+    next(new Error(error.message))
+  }
+};
+
+export const directUserLogin = async(req,res,next)=>{
+  try {
+    const cookie = req?.cookies.token
+    if(!cookie){
+      res.status(400)
+      return next(new Error("Unauthorized Access"))
+    }
+    const user = jwt.verify(cookie,process.env.SECRET)
+    res.status(200).json({success:true,message:"valid user",loginUser:user?.user})
+  } catch (error) {
+    
+  }
+}
