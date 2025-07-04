@@ -102,3 +102,18 @@ export const directUserLogin = async(req,res,next)=>{
     
   }
 }
+
+export const searchUser = async(req,res,next)=>{
+  try {
+    const {name} = req?.params
+    const users =await User.find({name:{$regex:name,$options:"i"}})
+    console.log(users?.length);
+    if(users?.length==0){
+      return res.status(404).json({success:false,message:"Not Found"})
+    }
+    return res.status(200).json({success:true,friends:users})
+  } catch (error) {
+    console.log("search user ",error?.message);
+    return next(new Error(error?.message))
+  }
+}

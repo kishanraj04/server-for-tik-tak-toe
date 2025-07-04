@@ -7,6 +7,7 @@ import './config/connectToDb.js'
 import cors from 'cors'
 import cookieParser from 'cookie-parser'
 import dotenv from 'dotenv'
+import { isAuthenticated } from './src/auth/isAuthenticated.js'
 
 const app = express()
 const server = createServer(app)
@@ -27,7 +28,7 @@ app.use(cors({
 
 
 // user route
-app.use("/api/v1",user)
+app.use("/api/v1", user)
 
 
 
