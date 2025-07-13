@@ -1,38 +1,191 @@
-import express from 'express'
-import { createServer } from 'http'
-import {Server} from 'socket.io'
-import { user } from './src/routes/user.route.js'
-import { errorHandler } from './src/middleware/GlobalErrorHandler.js'
-import './config/connectToDb.js'
-import cors from 'cors'
-import cookieParser from 'cookie-parser'
-import dotenv from 'dotenv'
-import { isAuthenticated } from './src/auth/isAuthenticated.js'
+import express from "express";
+import dotenv from "dotenv";
+import cors from "cors";
+import cookieParser from "cookie-parser";
+import { createServer } from "http";
+import { Server } from "socket.io";
 
-const app = express()
-const server = createServer(app)
+import { validateSocket } from "./auth/socketAuth.js";
+import "./config/connectToDb.js";
+import { errorHandler } from "./src/middleware/GlobalErrorHandler.js";
+import { user } from "./src/routes/user.route.js";
 
-const io =new Server(server,{})
+import { getSockets } from "./src/helper/getSockets.js";
+import { getTicTacToeResult } from "./src/helper/getGameResult.js";
+import { getDisConnUser, getIndex } from "./src/helper/helper.js";
+import { getRoomMessage } from "./src/constants/roomMessage.js";
+import { Result } from "./src/model/result.model.js";
 
-dotenv.config()
+// Load env variables
+dotenv.config();
 
+// Create app and server
+const app = express();
+const server = createServer(app);
+
+// Setup Socket.IO with CORS
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:5173",
+    credentials: true,
+  },
+});
+
+// Socket auth
+io.use((socket, next) => validateSocket(socket, next));
+
+// Attach IO to app
+app.set("io", io);
+
+// Middleware
 app.use(express.json());
-app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
-
-app.use(cors({
+app.use(cookieParser());
+app.use(
+  cors({
     origin: "http://localhost:5173",
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE"],
-  }))
+  })
+);
 
+// Routes
+app.use("/api/v1", user);
 
-// user route
-app.use("/api/v1", user)
+// Global Error Handler
+app.use(errorHandler);
 
+// State
+export let activeUser = [];
 
+io.on("connection", (socket) => {
+  console.log(`${socket.user?.name} connected`);
 
-app.use(errorHandler)
-server.listen(3000,()=>{
-    console.log("server listen on 3000");
-})
+  const socketUser = {
+    userId: socket?.user?._id,
+    name: socket.user?.name,
+    avatar: socket.user?.avatar,
+    socketId: socket.id,
+    isPlaying: false,
+    oponent: "",
+  };
+
+  activeUser.push(socketUser);
+  io.emit("ACTIVEUSERS", { activeuser: activeUser });
+
+  socket.on("GET_ACTIVE_USERS", () => {
+    socket.emit("ACTIVEUSERS", { activeuser: activeUser });
+  });
+
+  socket.on("FRIEND_REQUEST", ({ name, avatar, socketId }) => {
+    io.to(socketId).emit("GET_FRIEND_REQ", {
+      sender: { ...socket?.user, socketId },
+    });
+  });
+
+  socket.on("ACCEPT_FRIEND_REQUEST", ({ you, oponent }) => {
+    const socket1 = getSockets(you?.name);
+    const socket2 = getSockets(oponent?.name);
+    if (!socket1 || !socket2) return;
+
+    activeUser = activeUser.map((player) => {
+      if (player.name === socket1.name || player.name === socket2.name) {
+        return {
+          ...player,
+          isPlaying: true,
+          oponent: player.name === socket1.name ? socket2.name : socket1.name,
+        };
+      }
+      return player;
+    });
+
+    io.emit("ACTIVEUSERS", { activeuser: activeUser });
+
+    const roomMessage = getRoomMessage(socket1, socket2);
+    io.to([socket1.socketId, socket2.socketId]).emit("ACCEPT_FRIEND_REQUEST", roomMessage);
+    io.to([socket1.socketId, socket2.socketId]).emit("IS_PLAYING", true);
+  });
+
+  socket.on("PLAYER_MOVE", async({ player1, player2, currentTurn, board }) => {
+    const socket1 = getSockets(player1?.name);
+    const socket2 = getSockets(player2?.name);
+    if (!socket1 || !socket2) return;
+
+    const result = getTicTacToeResult(board);
+
+    if(result=="Draw"){
+      io.to([socket1.socketId, socket2.socketId]).emit("MATCH_DRAW", {
+        result:"DRAW"
+      });
+      activeUser = activeUser.map((user) =>
+        user.userId === socket1.userId || user.userId === socket2.userId
+          ? { ...user, isPlaying: false, oponent: "" }
+          : user
+      );
+
+      io.emit("ACTIVEUSERS", { activeuser: activeUser });
+      io.to([socket1.socketId, socket2.socketId]).emit("IS_PLAYING", false);
+      return;
+    }
+
+    else if (result === "X" || result === "Y") {
+      io.to([socket1.socketId, socket2.socketId]).emit("GET_WINNER", {
+        winner: socket1,
+        looser: socket2,
+      });
+      await Result.create({winner:socket1?.userId,looser:socket2?.userId})
+      activeUser = activeUser.map((user) =>
+        user.userId === socket1.userId || user.userId === socket2.userId
+          ? { ...user, isPlaying: false, oponent: "" }
+          : user
+      );
+
+      io.emit("ACTIVEUSERS", { activeuser: activeUser });
+      io.to([socket1.socketId, socket2.socketId]).emit("IS_PLAYING", false);
+    } else {
+      io.to([socket1.socketId, socket2.socketId]).emit("PLAYER_MOVE", {
+        player1,
+        player2,
+        currentTurn,
+        board,
+      });
+    }
+  });
+
+  socket.on("SEND_MSG", (data) => {
+    const senderSocket = getSockets(data?.sender);
+    const receiverSocket = getSockets(data?.receiver);
+    if (senderSocket && receiverSocket) {
+      io.to([receiverSocket?.socketId]).emit("RECEIVED_MESSAGE", { data });
+    }
+  });
+
+  socket.on("disconnect", () => {
+    console.log(`❌ Disconnected: ${socket.user?.name}`);
+
+    const you = getDisConnUser(socket?.user?.name);
+    const yourIndex = getIndex(socket.user?.name);
+    const opponentIndex = getIndex(you?.oponent);
+    const opponent = activeUser[opponentIndex];
+
+    if (you) you.isPlaying = false;
+    if (opponent) opponent.isPlaying = false;
+
+    if (yourIndex !== -1) activeUser.splice(yourIndex, 1);
+
+    if (you?.socketId && opponent?.socketId && you?.oponent && opponent?.oponent) {
+      io.to([you.socketId, opponent.socketId]).emit("GET_WINNER", {
+        winner: opponent,
+        looser: you,
+      });
+      io.to([you.socketId, opponent.socketId]).emit("IS_PLAYING", false);
+    }
+
+    io.emit("ACTIVEUSERS", { activeuser: activeUser });
+  });
+});
+
+// Start server
+server.listen(3000, () => {
+  console.log("🚀 Server is running on http://localhost:3000");
+});

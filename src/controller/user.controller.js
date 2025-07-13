@@ -92,14 +92,16 @@ export const login = async (req, res, next) => {
 export const directUserLogin = async(req,res,next)=>{
   try {
     const cookie = req?.cookies.token
+    // console.log(cookie);
     if(!cookie){
       res.status(400)
       return next(new Error("Unauthorized Access"))
     }
     const user = jwt.verify(cookie,process.env.SECRET)
-    res.status(200).json({success:true,message:"valid user",loginUser:user?.user})
+    // console.log(user);
+    return res.status(200).json({success:true,message:"valid user",loginUser:user?.user,token:cookie})
   } catch (error) {
-    
+    console.log(error?.message);
   }
 }
 
