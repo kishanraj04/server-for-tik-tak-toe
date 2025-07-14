@@ -1,14 +1,14 @@
 import mongoose from "mongoose";
+
 const resultSchema = mongoose.Schema({
-   winner:{
-    type:mongoose.Types.ObjectId,
-    res:'User'
-   },
-   looser:{
-    type:mongoose.Types.ObjectId,
-    res:'User'
-   }
+  winner: {
+    type: mongoose.Types.ObjectId,
+    ref: 'User'
+  },
+  looser: {
+    type: mongoose.Types.ObjectId,
+    ref: 'User'
+  }
 });
 
-
-export const Result = mongoose.model("Result",resultSchema);
+export const Result = mongoose.model("Result", resultSchema);

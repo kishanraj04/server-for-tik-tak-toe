@@ -55,8 +55,8 @@ export const SignUp = async (req, res, next) => {
 export const login = async (req, res, next) => {
   try {
     const { name, password } = req?.body;
-
-    const isExistUser = await User.findOne({ name: name });
+    console.log(name , password);
+    const isExistUser = await User.findOne({ name: name }).select("+password");
     if (!isExistUser) {
       res.status(401); 
       return next(new Error("Invalid credentials"));

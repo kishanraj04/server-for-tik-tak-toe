@@ -15,6 +15,8 @@ import { getTicTacToeResult } from "./src/helper/getGameResult.js";
 import { getDisConnUser, getIndex } from "./src/helper/helper.js";
 import { getRoomMessage } from "./src/constants/roomMessage.js";
 import { Result } from "./src/model/result.model.js";
+import { resultRoute } from "./src/routes/result.route.js";
+import { User } from "./src/model/user.model.js";
 
 // Load env variables
 dotenv.config();
@@ -51,13 +53,13 @@ app.use(
 
 // Routes
 app.use("/api/v1", user);
-
+app.use("/api/v1", resultRoute);
 // Global Error Handler
 app.use(errorHandler);
 
 // State
 export let activeUser = [];
-
+let currentPlayingUser = [];
 io.on("connection", (socket) => {
   console.log(`${socket.user?.name} connected`);
 
@@ -88,6 +90,8 @@ io.on("connection", (socket) => {
     const socket2 = getSockets(oponent?.name);
     if (!socket1 || !socket2) return;
 
+    currentPlayingUser.push(socket1?.userId, socket2?.userId);
+
     activeUser = activeUser.map((player) => {
       if (player.name === socket1.name || player.name === socket2.name) {
         return {
@@ -100,23 +104,33 @@ io.on("connection", (socket) => {
     });
 
     io.emit("ACTIVEUSERS", { activeuser: activeUser });
+    io.emit("CURRENT_PLAYERS", { currentPlayingUser }); // ✅ Emit when game starts
 
     const roomMessage = getRoomMessage(socket1, socket2);
-    io.to([socket1.socketId, socket2.socketId]).emit("ACCEPT_FRIEND_REQUEST", roomMessage);
+    io.to([socket1.socketId, socket2.socketId]).emit(
+      "ACCEPT_FRIEND_REQUEST",
+      roomMessage
+    );
     io.to([socket1.socketId, socket2.socketId]).emit("IS_PLAYING", true);
   });
 
-  socket.on("PLAYER_MOVE", async({ player1, player2, currentTurn, board }) => {
+  socket.on("PLAYER_MOVE", async ({ player1, player2, currentTurn, board }) => {
     const socket1 = getSockets(player1?.name);
     const socket2 = getSockets(player2?.name);
     if (!socket1 || !socket2) return;
 
     const result = getTicTacToeResult(board);
 
-    if(result=="Draw"){
+    if (result === "Draw") {
+      // ✅ Remove from current playing list
+      currentPlayingUser = currentPlayingUser.filter(
+        (id) => id !== socket1.userId && id !== socket2.userId
+      );
+
       io.to([socket1.socketId, socket2.socketId]).emit("MATCH_DRAW", {
-        result:"DRAW"
+        result: "DRAW",
       });
+
       activeUser = activeUser.map((user) =>
         user.userId === socket1.userId || user.userId === socket2.userId
           ? { ...user, isPlaying: false, oponent: "" }
@@ -124,16 +138,30 @@ io.on("connection", (socket) => {
       );
 
       io.emit("ACTIVEUSERS", { activeuser: activeUser });
+      io.emit("CURRENT_PLAYERS", { currentPlayingUser }); // ✅ Emit on draw
       io.to([socket1.socketId, socket2.socketId]).emit("IS_PLAYING", false);
       return;
     }
 
-    else if (result === "X" || result === "Y") {
+    if (result === "X" || result === "O") {
+      const winner = player1.symbol === result ? socket1 : socket2;
+      const looser = player1.symbol === result ? socket2 : socket1;
+
+      // ✅ Remove from current playing list
+      currentPlayingUser = currentPlayingUser.filter(
+        (id) => id !== socket1.userId && id !== socket2.userId
+      );
+
       io.to([socket1.socketId, socket2.socketId]).emit("GET_WINNER", {
-        winner: socket1,
-        looser: socket2,
+        winner,
+        looser,
       });
-      await Result.create({winner:socket1?.userId,looser:socket2?.userId})
+
+      await Result.create({
+        winner: winner.userId,
+        looser: looser.userId,
+      });
+
       activeUser = activeUser.map((user) =>
         user.userId === socket1.userId || user.userId === socket2.userId
           ? { ...user, isPlaying: false, oponent: "" }
@@ -141,15 +169,18 @@ io.on("connection", (socket) => {
       );
 
       io.emit("ACTIVEUSERS", { activeuser: activeUser });
+      io.emit("CURRENT_PLAYERS", { currentPlayingUser }); // ✅ Emit on win
       io.to([socket1.socketId, socket2.socketId]).emit("IS_PLAYING", false);
-    } else {
-      io.to([socket1.socketId, socket2.socketId]).emit("PLAYER_MOVE", {
-        player1,
-        player2,
-        currentTurn,
-        board,
-      });
+      return;
     }
+
+    // No win or draw — just emit next turn
+    io.to([socket1.socketId, socket2.socketId]).emit("PLAYER_MOVE", {
+      player1,
+      player2,
+      currentTurn,
+      board,
+    });
   });
 
   socket.on("SEND_MSG", (data) => {
@@ -160,7 +191,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("disconnect", () => {
+  socket.on("disconnect", async () => {
     console.log(`❌ Disconnected: ${socket.user?.name}`);
 
     const you = getDisConnUser(socket?.user?.name);
@@ -173,14 +204,34 @@ io.on("connection", (socket) => {
 
     if (yourIndex !== -1) activeUser.splice(yourIndex, 1);
 
-    if (you?.socketId && opponent?.socketId && you?.oponent && opponent?.oponent) {
+    if (
+      you?.socketId &&
+      opponent?.socketId &&
+      you?.oponent &&
+      opponent?.oponent
+    ) {
       io.to([you.socketId, opponent.socketId]).emit("GET_WINNER", {
         winner: opponent,
         looser: you,
       });
+
+      try {
+        await Result.create({
+          winner: opponent?.userId,
+          looser: you?.userId,
+        });
+      } catch (error) {
+        console.log(error?.message);
+      }
+
       io.to([you.socketId, opponent.socketId]).emit("IS_PLAYING", false);
     }
 
+    // ✅ Remove from current playing list
+    currentPlayingUser = currentPlayingUser.filter(
+      (id) => id !== socket?.user?.userId
+    );
+    io.emit("CURRENT_PLAYERS", { currentPlayingUser }); // ✅ Emit on disconnect
     io.emit("ACTIVEUSERS", { activeuser: activeUser });
   });
 });
