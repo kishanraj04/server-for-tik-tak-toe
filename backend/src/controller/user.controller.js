@@ -89,21 +89,44 @@ export const login = async (req, res, next) => {
   }
 };
 
-export const directUserLogin = async(req,res,next)=>{
+export const directUserLogin = async (req, res, next) => {
   try {
-    const cookie = req?.cookies.token
-    // console.log(cookie);
-    if(!cookie){
-      res.status(400)
-      return next(new Error("Unauthorized Access"))
+    const cookie = req?.cookies?.token;
+    if (!cookie) {
+      return res.status(401).json({ success: false, message: "Unauthorized Access" });
     }
-    const user = jwt.verify(cookie,process.env.SECRET)
-    // console.log(user);
-    return res.status(200).json({success:true,message:"valid user",loginUser:user?.user,token:cookie})
+
+    const user = jwt.verify(cookie, process.env.SECRET);
+    return res.status(200).json({
+      success: true,
+      message: "Valid user",
+      loginUser: user?.user,
+      token: cookie,
+    });
   } catch (error) {
-    console.log(error?.message);
+    console.error("Direct login error:", error.message);
+    return res.status(401).json({ success: false, message: "Invalid token" });
   }
-}
+};
+
+
+export const handleLogout = async (req, res, next) => {
+  try {
+    const token = req?.cookies?.token;
+    if (!token) return res.status(400).json({ success: false, message: "No token found" });
+
+    res.clearCookie("token", {
+      httpOnly: true,
+      sameSite: "strict",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+    });
+
+    return res.status(200).json({ success: true, message: "User logged out" });
+  } catch (error) {
+    return next(error);
+  }
+};
 
 export const searchUser = async(req,res,next)=>{
   try {

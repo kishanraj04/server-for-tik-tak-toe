@@ -1,5 +1,5 @@
 import express from 'express'
-import { directUserLogin, login, searchUser, SignUp } from '../controller/user.controller.js'
+import { directUserLogin, handleLogout, login, searchUser, SignUp } from '../controller/user.controller.js'
 import { upload } from '../../config/multer.js'
 import { isAuthenticated } from '../auth/isAuthenticated.js'
 
@@ -13,5 +13,7 @@ user.post("/login",login)
 user.get("/direct-login",directUserLogin)
 
 user.get("/search/:name",isAuthenticated,searchUser)
+
+user.post("/logout",isAuthenticated,handleLogout)
 
 export {user}
