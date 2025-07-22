@@ -57,6 +57,10 @@ app.use("/api/v1", resultRoute);
 // Global Error Handler
 app.use(errorHandler);
 
+
+app.get("/",(req,res)=>{
+  return res.status(200).json({success:true,message:"server runing"})
+})
 // State
 export let activeUser = [];
 export let currentPlayingUser = [];
