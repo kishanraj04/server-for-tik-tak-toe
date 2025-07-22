@@ -16,7 +16,7 @@ import { getRoomMessage } from "./src/constants/roomMessage.js";
 import { Result } from "./src/model/result.model.js";
 import { resultRoute } from "./src/routes/result.route.js";
 import { User } from "./src/model/user.model.js";
-
+import helmet from 'helmet'
 // Load env variables
 dotenv.config();
 
@@ -57,6 +57,17 @@ app.use("/api/v1", resultRoute);
 // Global Error Handler
 app.use(errorHandler);
 
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:"],
+    },
+  },
+}));
 
 app.get("/",(req,res)=>{
   return res.status(200).json({success:true,message:"server runing"})
